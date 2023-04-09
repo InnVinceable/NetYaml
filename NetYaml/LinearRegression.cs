@@ -1,49 +1,51 @@
-﻿namespace NetYaml
+﻿using MathNet.Numerics.LinearAlgebra;
+using NetYaml.Interfaces;
+
+namespace NetYaml
 {
-    public class LinearRegression
+    public class LinearRegression : IMLModel, ITrainedModel
     {
-        private double[] _weights;
-        private double _yIntercept;
+        private Vector<double>[] _weights;
 
-        public void Fit(double[][] xTrain, double[] yTrain)
+        internal LinearRegression() { }
+
+        public ITrainedModel Fit(double[,] xTrain, double[,] yTrain)
         {
-            var yMean = yTrain.Average();
-            _weights = new double[xTrain.Length];
+            var row = Enumerable.Range(0, yTrain.GetLength(1))
+                .Select(x => yTrain[0, x])
+                .ToArray();
 
-            var xMeans = new double[xTrain.Length];
-            for (var i = 0; i < xTrain.Length; i++)
-            {
-                var xParameterSet = xTrain[i];
-                var xMean = xParameterSet.Average();
-                var numerator = 0d;
-                var denominator = 0d;
-                for (var j = 0; j < xTrain.Length; j++)
-                {
-                    numerator += (xParameterSet[j] - xMean) * (yTrain[j] - yMean);
-                    denominator += Math.Pow(xParameterSet[j] - xMean, 2);
-                }
+            _weights = new Vector<double>[row.Length];
 
-                _weights[i] = numerator / denominator;
-                _weights[i] /= xTrain.Length;
-                xMeans[i] = xMean;
-            }
-
-            _yIntercept = yMean;
-            for (var i = 0; i < xTrain.Length; i++)
-            {
-                _yIntercept -= (xMeans[i] * _weights[i]);
-            }
-        }
-
-        public double Predict(double[] x)
-        {
-            var prediction = 0d;
             for (var i = 0; i < _weights.Length; i++)
             {
-                prediction += _weights[i] * x[i];
+                var y = Enumerable.Range(0, yTrain.GetLength(0))
+                    .Select(x => yTrain[x, i])
+                    .ToArray();
+
+                var xMatrix = Matrix<double>.Build.DenseOfArray(xTrain);
+                var yMatrix = Vector<double>.Build.Dense(y);
+
+                _weights[i] = xMatrix
+                    .QR()
+                    .Solve(yMatrix);
             }
 
-            prediction += _yIntercept;
+            return this;
+        }
+
+        public double[] Predict(double[] x)
+        {
+            var prediction = new double[_weights.Length];
+
+            for (var i = 0; i < _weights.Length; i++)
+            {
+                var xVector = Vector<double>
+                    .Build
+                    .DenseOfArray(x);
+                
+                prediction[i] = _weights[i].DotProduct(xVector);
+            }
 
             return prediction;
         }
