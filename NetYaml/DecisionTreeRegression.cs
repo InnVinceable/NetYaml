@@ -6,16 +6,44 @@ namespace NetYaml
 {
     public class DtNode
     {
-        public DtNode(double? key = null)
+        public DtNode() { }
+
+        public DtNode(int xIndex, double key)
         {
+            XIndex = xIndex;
             Key = key;
         }
 
         public List<DtNode> Children { get; set; }
 
-        public double? Key { get; set; }
+        public int XIndex { get; set; }
+
+        public double Key { get; set; }
 
         public double Value { get; set; }
+
+        public double GetLeafValue(double[] xValues)
+        {
+            return TraverseTree(xValues);
+        }
+
+        private double TraverseTree(double[] xValues)
+        {
+            if (Children == null || !Children.Any())
+            {
+                return Value;
+            }
+
+            foreach (var child in Children)
+            {
+                if (xValues[child.XIndex] == child.Key)
+                {
+                    return child.TraverseTree(xValues);
+                }
+            }
+
+            return 0;
+        }
     }
 
     public class DecisionTreeRegression : IMLModel, ITrainedModel
@@ -45,7 +73,9 @@ namespace NetYaml
 
         public double[] Predict(double[] x)
         {
-            throw new NotImplementedException();
+            return rootNodes
+                .Select(node => node.GetLeafValue(x))
+                .ToArray();
         }
 
         private void Train(DtNode node, double[,] xTrain, double[] yTrain)
@@ -53,6 +83,12 @@ namespace NetYaml
             var stdDev = StandardDeviation(yTrain);
             var average = yTrain.Average();
             var coeffeicientOfVariation = stdDev / average * 100;
+            node.Value = average;
+
+            if (coeffeicientOfVariation < cvThreshold)
+            {
+                return;
+            }
 
             var highestSdr = 0d;
             var selectedXIndex = 0;
@@ -78,6 +114,7 @@ namespace NetYaml
                 {
                     selectedGroupings = group;
                     selectedXIndex = i;
+                    highestSdr = sdr;
                 }
             }
 
@@ -86,15 +123,35 @@ namespace NetYaml
                 return;
             }
 
+            var subsets = SubSetTrainingSets(xTrain, yTrain, selectedXIndex, selectedGroupings.Select(g => g.Key).ToArray());
+
             node.Children = new List<DtNode>();
-            foreach (var group in selectedGroupings)
+            foreach (var subset in subsets)
             {
-                var childNode = new DtNode(selectedXIndex);
-
-
-                Train(childNode, subset, );
-                node.Children.Add();
+                var childNode = new DtNode(selectedXIndex, subset.xTrain[0, selectedXIndex]);
+                Train(childNode, subset.xTrain, subset.yTrain);
+                node.Children.Add(childNode);
             }
+        }
+
+        private IEnumerable<(double[,] xTrain, double[] yTrain)> SubSetTrainingSets(double[,] xTrain, double[] yTrain, int selectedIndex, double[] keys)
+        {
+            var subsetDict = new Dictionary<double, (List<double[]> xTrain, List<double> yTrain)>();
+            for (var i = 0; i < xTrain.GetLength(0); i++)
+            {
+                var row = xTrain.GetRow(i);
+                
+                if (!subsetDict.ContainsKey(row[selectedIndex]))
+                {
+                    subsetDict.Add(row[selectedIndex], (new List<double[]>(), new List<double>()));
+                }
+
+                subsetDict[row[selectedIndex]].xTrain.Add(row);
+                subsetDict[row[selectedIndex]].yTrain.Add(yTrain[i]);
+            }
+
+            return subsetDict
+                .Select(d => (d.Value.xTrain.ToArray().To2DArray(), d.Value.yTrain.ToArray()));
         }
 
         private double StandardDeviation(double[] x)
